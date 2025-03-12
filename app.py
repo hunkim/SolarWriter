@@ -3,7 +3,7 @@ import streamlit as st
 import json
 from langchain_upstage import ChatUpstage 
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage, HumanMessage
 from datetime import datetime
 import asyncio
@@ -15,6 +15,18 @@ from dp import doc_parse
 
 solarpro = ChatUpstage(model="solar-pro")
 
+def reset_state():
+    st.session_state.chat_state = {
+        "stage": "init",
+        "topic": None,
+        "context": None,
+        "outline": None,
+        "sections": {},
+        "refined_article": None,
+        "polished_article": None,
+        "messages": [],
+        "current_article": None
+    }
 
 def write_section(topic: str, section_title: str, key_points: List[str], writing_prompt: str, context: str = ""):
     # Modified prompt to include context when available
@@ -76,7 +88,7 @@ Your task is to polish this article while:
 2. Improving text fluency and readability
 3. Maintaining professional tone
 4. Preserving all technical content and accuracy
-5. Maintaining the same language as the input article (e.g., if input is Korean, output should be Korean)
+5. NOTE: Maintaining the same language as the input article (e.g., if input is Korean, output should be Korean)
 
 Focus on making the text flow naturally while keeping the technical depth and original language."""),
         ("user", """Article content:
@@ -90,13 +102,13 @@ Return only the polished article without any additional text.""")
     try:
         # Use solar_pro for polishing
         polish_chain = polish_prompt | solarpro | StrOutputParser()
-        polished_article = polish_chain.invoke({
+        return  polish_chain.stream({
             "article_content": article_content
         })
-        return polished_article
     except Exception as e:
         st.warning(f"⚠️ Final polishing step skipped: {str(e)}")
-        return article_content
+        # Return an empty generator for error case
+        return (chunk for chunk in [article_content])
 
 def refine_full_article(topic: str, article_content: str, topic_content: str = "") -> str:
     prompt = f"""As an expert editor, refine this article about '{topic}' to:
@@ -127,153 +139,41 @@ Just return the refined article, do not include any other text.
         st.warning(f"⚠️ Final refinement step skipped: {str(e)}")
         return article_content
 
-def write_full_article(topic: str, outline_result: dict, topic_content: str = ""):
-    st.subheader("📝 Generated Article")
-    
-    # Display article title
-    st.markdown(f"# {outline_result['enhanced_version']['title']}")
-    st.markdown("---")
-    
-    article_sections = []
-    
-    # First, generate all sections with visible progress
-    st.subheader("1️⃣ Generating Individual Sections:")
-    
-    for section in outline_result["enhanced_version"]["sections"]:
-        with st.expander(f"🔄 Generating: {section['section_title']}", expanded=True):
-            progress_placeholder = st.empty()
-            progress_placeholder.info("Starting generation...")
-            
-            section_content = write_section(
-                topic=topic,
-                section_title=section["section_title"],
-                key_points=section["key_points"],
-                writing_prompt=section["writing_prompt"],
-                context=topic_content
-            )
-            
-            if section_content["success"]:
-                progress_placeholder.success("✅ Generation complete!")
-                st.markdown(section_content["content"])
-                article_sections.append({
-                    "title": section["section_title"],
-                    "content": section_content["content"],
-                    "sources": section_content["metadata"].get("search_results", [])
-                })
-            else:
-                progress_placeholder.error(f"❌ Error: {section_content['error']}")
-    
-    # Only proceed if all sections were generated successfully
-    if len(article_sections) == len(outline_result["enhanced_version"]["sections"]):
-        st.markdown("---")
-        
-        # Step 2: Refining
-        st.subheader("2️⃣ Refining Article")
-        with st.spinner("🔄 Improving article flow and coherence..."):
-            # Combine sections into full article
-            full_article = f"# {outline_result['enhanced_version']['title']}\n\n"
-            for section in article_sections:
-                full_article += f"## {section['title']}\n\n{section['content']}\n\n"
-            
-            # Show refining progress and result
-            refine_container = st.container()
-            refine_progress = refine_container.empty()
-            refine_progress.info("🔄 Refining article content...")
-            refined_article = refine_full_article(topic, full_article, topic_content)
-            refine_progress.success("✅ Article refined successfully")
-            
-            # Show refined version immediately
-            with refine_container.expander("📝 View Refined Version", expanded=True):
-                st.markdown(refined_article)
+def apply_feedback(article_content: str, current_article: str, feedback: str) -> str:
+    """Apply user feedback to improve the article"""
+    feedback_prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are an expert editor who carefully considers user feedback.
+Your task is to improve the article based on the specific feedback while:
+1. Maintaining the original language and technical accuracy
+2. Preserving the overall structure
+3. Keeping the professional tone
+4. Making only the changes suggested in the feedback
 
-        # Step 3: Polishing
-        st.subheader("3️⃣ Final Polish")
-        with st.spinner("✨ Polishing section names and text fluency..."):
-            # Show polishing progress and result
-            polish_container = st.container()
-            polish_progress = polish_container.empty()
-            polish_progress.info("🔄 Polishing article style...")
-            polished_article = polish_full_article(refined_article)
-            polish_progress.success("✅ Article polished successfully")
-            
-            # Show polished version immediately
-            with polish_container.expander("✨ View Polished Version", expanded=True):
-                st.markdown(polished_article)
-            
-        # Show all versions in tabs for comparison
-        st.markdown("---")
-        st.subheader("📄 Compare All Versions")
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "✨ Final Polished", 
-            "📝 Refined", 
-            "📄 Original",
-            "📊 Statistics"
-        ])
-        
-        with tab1:
-            st.markdown(polished_article)
-            if st.button("📋 Copy Final Article"):
-                st.text_area("Copy final article:", value=polished_article, height=300)
-        
-        with tab2:
-            st.markdown(refined_article)
-            if st.button("📋 Copy Refined Article"):
-                st.text_area("Copy refined article:", value=refined_article, height=300)
-        
-        with tab3:
-            st.markdown(full_article)
-            if st.button("📋 Copy Original Article"):
-                st.text_area("Copy original article:", value=full_article, height=300)
-        
-        with tab4:
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Sections", len(article_sections))
-            with col2:
-                st.metric("Original Words", len(full_article.split()))
-            with col3:
-                st.metric("Refined Words", len(refined_article.split()))
-            with col4:
-                st.metric("Final Words", len(polished_article.split()))
-        
-        # Download options
-        st.markdown("---")
-        st.subheader("📥 Download Options")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                label="📝 Download Final Article (MD)",
-                data=polished_article,
-                file_name="final_article.md",
-                mime="text/markdown"
-            )
-        
-        with col2:
-            json_content = {
-                "title": outline_result['enhanced_version']['title'],
-                "topic": topic,
-                "original_sections": article_sections,
-                "refined_article": refined_article,
-                "final_article": polished_article,
-                "metadata": {
-                    "generation_time": str(datetime.now()),
-                    "section_count": len(article_sections),
-                    "original_word_count": len(full_article.split()),
-                    "refined_word_count": len(refined_article.split()),
-                    "final_word_count": len(polished_article.split())
-                }
-            }
-            st.download_button(
-                label="🔧 Download Complete Data (JSON)",
-                data=json.dumps(json_content, indent=2),
-                file_name="article_data.json",
-                mime="application/json"
-            )
-        
-        st.success("✅ Article generation, refinement, and polish complete!")
-    else:
-        st.error("❌ Some sections failed to generate. Please try again.")
+Focus on addressing the feedback points while preserving the article's strengths."""),
+        ("user", """Original article content:
+{article_content}
+
+Current article content:
+{current_article}
+
+User feedback:
+{feedback}
+
+Please revise the article based on this feedback.
+Keep the same language as the input article.
+Return only the revised article without any additional text.""")
+    ])
+
+    try:
+        feedback_chain = feedback_prompt | solarpro | StrOutputParser()
+        return feedback_chain.stream({
+            "article_content": article_content,
+            "current_article": current_article,
+            "feedback": feedback
+        })
+    except Exception as e:
+        st.warning(f"⚠️ Feedback application skipped: {str(e)}")
+        return (chunk for chunk in [article_content])
 
 def refine_outline(topic: str, outline: str):
     # First, enhance the outline
@@ -389,188 +289,266 @@ async def get_topic_with_context(topic: str, url: Optional[str] = None, uploaded
         "pdf_content": pdf_content
     }
 
+
+OUTLINE_TEMPLATES = {
+    "Technical Blog Post": """# Title
+
+## Introduction
+- Overview and significance
+- Current challenges
+- Key objectives
+
+## Technical Background
+- Core concepts
+- Key components
+- Working principles
+
+## Implementation
+- System architecture
+- Key features
+- Best practices
+
+## Results and Impact
+- Performance metrics
+- Real-world applications
+- Future directions
+
+## Conclusion
+- Key takeaways
+- Next steps""",
+
+    "Research Paper Review": """# Review: [Paper Title]
+
+## Research Overview
+- Key objectives
+- Methodology
+- Main findings
+
+## Analysis
+- Research approach
+- Key results
+- Critical insights
+
+## Impact and Discussion
+- Key contributions
+- Limitations
+- Future directions
+
+## Conclusion
+- Final assessment
+- Recommendations""",
+
+    "Product Review": """# [Product Name] Review
+
+## Overview
+- Key features
+- Target audience
+- Setup experience
+
+## Performance
+- Real-world usage
+- Key strengths
+- Limitations
+
+## Value Analysis
+- Price comparison
+- Use cases
+- Alternatives
+
+## Verdict
+- Final rating
+- Recommendations""",
+
+    "Educational Article": """# Understanding [Topic]
+
+## Core Concepts
+- Key principles
+- Basic terminology
+- Main components
+
+## Practical Application
+- Common uses
+- Implementation steps
+- Best practices
+
+## Advanced Topics
+- Expert techniques
+- Common challenges
+- Solutions
+
+## Summary
+- Key takeaways
+- Next steps
+- Resources"""
+}
+
+def write_article(topic, user_outline, url, uploaded_file):
+    st.subheader("1️⃣ Gathering Context")
+    st.spinner("🔄 Getting context...")
+     # Check and fill context if needed
+    if not st.session_state.chat_state["context"] or st.session_state.chat_state["context"].get("context") is None:
+        with st.spinner("Processing context..."):
+            topic_data = asyncio.run(get_topic_with_context(topic, url, uploaded_file))
+            st.session_state.chat_state.update({
+                "topic": topic,
+                "context": topic_data
+            })
+
+    # Let's write context
+    with st.expander("📄 Context Information", expanded=False):
+        st.json(st.session_state.chat_state["context"])
+
+    # Check and fill outline if needed
+    st.subheader("2️⃣ Enhancing Outline")
+    if not st.session_state.chat_state["outline"] and user_outline:
+        with st.spinner("Enhancing outline..."):
+            outline_result = refine_outline(
+                st.session_state.chat_state["topic"], 
+                user_outline
+            )
+            st.session_state.chat_state["outline"] = outline_result
+
+    assert st.session_state.chat_state["outline"] is not None
+
+
+    with st.expander("📑 Enhanced Outline", expanded=False):
+        st.json(st.session_state.chat_state["outline"]["enhanced_version"])
+
+    # Check and fill sections if needed
+    st.subheader("3️⃣ Writing Sections")
+    # Create placeholders for all sections first
+    section_placeholders = {}
+    for section in st.session_state.chat_state["outline"]["enhanced_version"]["sections"]:
+        with st.expander(f"📄 {section['section_title']}", expanded=True):
+            section_placeholders[section['section_title']] = {
+                'status': st.empty(),
+                'content': st.empty()
+            }
+            section_placeholders[section['section_title']]['status'].info("⏳ Waiting to generate...")
+    
+
+    # Generate sections one by one
+    combined = ""
+    for section in st.session_state.chat_state["outline"]["enhanced_version"]["sections"]:
+        placeholders = section_placeholders[section['section_title']]
+        placeholders['status'].info("🔄 Generating...")
+
+        if st.session_state.chat_state["sections"].get(section["section_title"]) is None:
+            content = write_section(
+                topic=st.session_state.chat_state["topic"],
+                section_title=section["section_title"],
+                key_points=section["key_points"],
+                writing_prompt=section["writing_prompt"],
+                context=st.session_state.chat_state["context"]["context"]
+            )
+
+            st.session_state.chat_state["sections"][section["section_title"]] = {
+                "content": content["content"],
+                "sources": content["metadata"].get("search_results", [])
+            }
+
+        placeholders['status'].success("✅ Generation complete!")
+        placeholders['content'].markdown(st.session_state.chat_state["sections"][section["section_title"]]["content"])
+        combined += f"## {section['section_title']}\n\n{st.session_state.chat_state['sections'][section['section_title']]['content']}\n\n"
+
+    # Continue with refinement immediately after sections are generated
+    st.subheader("4️⃣ Refining Article")
+    if not st.session_state.chat_state["refined_article"]:   
+        with st.spinner("🔄 Improving article flow and coherence..."):
+            refined = refine_full_article(
+                st.session_state.chat_state["topic"],
+                combined,
+                st.session_state.chat_state["context"]["context"]
+            )
+            st.session_state.chat_state["refined_article"] = refined
+    
+    assert st.session_state.chat_state["refined_article"] is not None
+    with st.expander("📝 Refined Version", expanded=True):
+        st.markdown(st.session_state.chat_state["refined_article"])
+
+    # Continue with polishing immediately after refinement
+    st.subheader("5️⃣ Final Polish")
+    with st.expander("✨ Polished Version", expanded=True):
+    
+        if not st.session_state.chat_state["polished_article"]:
+            with st.spinner("✨ Polishing article..."):
+                polished = polish_full_article(st.session_state.chat_state["refined_article"])
+                polished = st.write_stream(polished)
+                st.session_state.chat_state["polished_article"] = polished
+                st.session_state.chat_state["current_article"] = polished
+                
+        else:
+            st.markdown(st.session_state.chat_state["polished_article"])
+
+    # Show feedback interface once article is polished
+    if st.session_state.chat_state["polished_article"]:
+        st.markdown("---")
+        st.subheader("💬 Feedback & Refinement")
+
+        # Show chat history
+        for message in st.session_state.chat_state["messages"]:
+            with st.chat_message("user" if isinstance(message, HumanMessage) else "assistant"):
+                st.markdown(message.content)
+
+        # Handle new feedback
+        if feedback := st.chat_input("Provide feedback to improve the article..."):
+            # Add user feedback to chat
+            st.session_state.chat_state["messages"].append(
+                HumanMessage(content=f"💬 **Feedback:** {feedback}")
+            )
+            
+            with st.chat_message("user"):
+                st.markdown(f"💬 **Feedback:** {feedback}")
+            
+            with st.chat_message("assistant"):
+                with st.spinner("Applying feedback..."):
+                    revised = apply_feedback(
+                        st.session_state.chat_state["polished_article"],
+                        st.session_state.chat_state["current_article"],
+                        feedback
+                    )
+
+                    revised = st.write_stream(revised)
+                    st.session_state.chat_state["current_article"] = revised
+                    st.session_state.chat_state["messages"].append(
+                        AIMessage(content=revised)
+                    )
 def main():
+    # Initialize session state
+    if "chat_state" not in st.session_state:
+        reset_state()
+
     st.title("🤖 AI Article Generator")
     st.markdown("---")
-    
-    # Get topic
-    topic = st.text_input(
-        "🎯 Enter your topic:",
-        value="업스테이지 Document AI 관련 기술 블로그 (한국어)",
-        help="Be specific to get better results"
-    )
-    
-    # Optional additional context
-    url = st.text_input(
-        "🌐 Optional: Enter URL for additional context",
-        value="https://upstage.ai",
-        help="Enter a URL to include its content"
-    )
-    
-    uploaded_file = st.file_uploader(
-        "📄 Optional: Upload document for additional context",
-        type=["pdf", "docx", "txt"]
-    )
 
-    # Show extracted content if available
-    if url or uploaded_file:
-        topic_data = asyncio.run(get_topic_with_context(topic, url, uploaded_file))
-        
-        # Create columns for URL and PDF content
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if url and topic_data["url_content"]:
-                with st.expander("🌐 URL Content", expanded=False):
-                    st.markdown("### Content from URL:")
-                    st.text_area(
-                        "URL content:",
-                        value=topic_data["url_content"],
-                        height=300,
-                        disabled=True
-                    )
-                    st.caption(f"Source: {url}")
-        
-        with col2:
-            if uploaded_file and topic_data["pdf_content"]:
-                with st.expander("📄 Document Content", expanded=False):
-                    st.markdown("### Content from Document:")
-                    st.text_area(
-                        "Document content:",
-                        value=topic_data["pdf_content"],
-                        height=300,
-                        disabled=True
-                    )
-                    st.caption(f"Source: {uploaded_file.name}")
+    # Single text area for topic and description
+    topic = st.text_area("🎯 Topic & Description:", 
+                        value="업스테이지 Document AI 관련 기술 블로그 (한국어)",
+                        height=100,
+                        help="Enter your topic and brief description (optional)",
+                        placeholder="Example:\nGPT-4 Technical Deep Dive\nor\nAI Image Generation - A comprehensive guide for beginners")
 
-    use_search = st.checkbox("🔍 Use Google Search", value=True,
-                           help="Enable to include recent information")
-    
-    # Sample outlines stored in a dictionary
-    outlines = {
-        "Technical Blog Post": """Title: 
+    # Context inputs in expandable section
+    with st.expander("📚 Additional Context (Optional)", expanded=True):
+        url = st.text_input("🌐 Reference URL:", 
+                           value="https://upstage.ai",
+                           help="Add a URL for reference content")
+        uploaded_file = st.file_uploader("📄 Upload Document:", 
+                                       type=["pdf", "docx", "txt"])
 
-1. Introduction and Problem Space
-   - Challenge overview
-   - Business impact
-   - Current solutions
+    # Outline selection and customization
+    outline_type = st.selectbox("Select content type:", list(OUTLINE_TEMPLATES.keys()))
+    user_outline = st.text_area("Customize outline:", 
+                               value=OUTLINE_TEMPLATES[outline_type], 
+                               height=300)
 
-2. Technical Solution Design
-   - Architecture overview
-   - Technology stack
-   - Design decisions
+    if st.button("🔄 Start New Article"):
+        reset_state()
+        write_article(topic, user_outline, url, uploaded_file)
+    elif st.session_state.chat_state["outline"]:
+        write_article(topic, user_outline, url, uploaded_file)
 
-3. Implementation Journey
-   - Development process
-   - Code examples
-   - Key challenges solved
 
-4. Results and Impact
-   - Performance metrics
-   - Business outcomes
-   - User feedback
-
-5. Lessons and Next Steps
-   - Key learnings
-   - Best practices
-   - Future improvements""",
-
-        "Research Paper Review": """Title: 
-
-1. Paper Overview
-   - Research objectives
-   - Key contributions
-   - Methodology summary
-
-2. Literature Review & Background
-   - Previous research
-   - Theoretical foundation
-   - Research gap
-
-3. Technical Methodology
-   - Model architecture
-   - Dataset description
-   - Implementation details
-
-4. Results Analysis
-   - Experimental results
-   - Comparative analysis
-   - Statistical significance
-
-5. Discussion & Implications
-   - Key findings
-   - Limitations
-   - Future research directions""",
-
-        "Product Review": """Title: 
-
-1. Product Overview
-   - Key features
-   - Target audience
-   - Technical specifications
-
-2. User Experience
-   - Setup process
-   - Interface design
-   - Learning curve
-
-3. Performance Analysis
-   - Speed and reliability
-   - Resource usage
-   - Integration capabilities
-
-4. Practical Applications
-   - Use case scenarios
-   - Real-world testing
-   - Comparison with alternatives
-
-5. Value Assessment
-   - Pricing analysis
-   - Pros and cons
-   - Final recommendations"""
-    }
-
-    # Add outline selector
-    outline_type = st.selectbox(
-        "📋 Select content type:",
-        list(outlines.keys()),
-        help="Choose the type of content you want to create"
-    )
-
-    # Get the selected outline
-    sample_outline = outlines[outline_type]
-
-    # Allow user to modify the selected outline
-    user_outline = st.text_area(
-        "📝 Customize your outline:",
-        value=sample_outline,
-        height=400,
-        help="Modify the outline to suit your needs"
-    )
-
-    if st.button("🚀 Generate Article") and topic:
-        with st.spinner("🔄 Processing input and outline..."):
-            # Get topic with context again for article generation
-            topic_data = asyncio.run(get_topic_with_context(topic, url, uploaded_file))
-            
-            # First, refine the outline
-            outline_result = refine_outline(topic_data["topic"], user_outline)
-            
-            if "error" in outline_result:
-                st.error(f"❌ Error: {outline_result['error']}")
-            else:
-                st.success(f"✅ Using context from: {topic_data['source']}")
-                with st.expander("🔍 View Refined Outline"):
-                    st.json(outline_result["enhanced_version"])
-                
-                # Pass context to write_full_article
-                write_full_article(
-                    topic=topic_data["topic"],
-                    outline_result=outline_result,
-                    topic_content=topic_data["context"]
-                )
-    elif not topic:
-        st.warning("Please enter a topic to continue")
 
 if __name__ == "__main__":
     main()
