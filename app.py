@@ -518,7 +518,7 @@ def main():
     if "chat_state" not in st.session_state:
         reset_state()
 
-    st.title("🤖 AI Article Generator")
+    st.title("🤖 SolarWriter")
     st.markdown("---")
 
     # Single text area for topic and description
