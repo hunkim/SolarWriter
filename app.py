@@ -519,7 +519,7 @@ def main():
         reset_state()
 
     st.title("🤖 SolarWriter")
-    st.markdown("---")
+    st.markdown("Powered by [Upstage](https://console.upstage.ai)'s advanced LLM and Document AI technology")
 
     # Single text area for topic and description
     topic = st.text_area("🎯 Topic & Description:", 
