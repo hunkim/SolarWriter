@@ -1,7 +1,7 @@
 from typing import Dict, List, Any, Optional
 import streamlit as st
 import json
-from langchain_upstage import ChatUpstage
+from langchain_upstage import ChatUpstage 
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage, HumanMessage
@@ -28,6 +28,7 @@ def reset_state():
         "polished_article": None,
         "messages": [],
         "current_article": None,
+        "language": None,
     }
 
 
@@ -59,10 +60,10 @@ Please actually write a well-structured section (300-500 words). Do not include 
             prompt=prompt,
             use_google_search=True,  # Enable search for up-to-date information
         )
-
+        
         # Assuming llm function returns a dict with 'content' or 'text' key
         content = response.get("content") or response.get("text")
-
+        
         if not content:
             raise ValueError("No content generated")
 
@@ -91,7 +92,7 @@ Please actually write a well-structured section (300-500 words). Do not include 
         }
 
 
-def polish_full_article(article_content: str) -> str:
+def polish_full_article(topic: str, article_content: str) -> str:
     """Polish the article focusing on section name consistency and text fluency"""
     polish_prompt = ChatPromptTemplate.from_messages(
         [
@@ -103,13 +104,15 @@ Your task is to polish this article while:
 2. Improving text fluency and readability
 3. Maintaining professional tone
 4. Preserving all technical content and accuracy
-5. NOTE: Maintaining the same language as the input article (e.g., article이 한국어면 한국어 출력, in english, output should be in english)
 
 Focus on making the text flow naturally while keeping the technical depth and original language.""",
             ),
             (
                 "user",
-                """Article content:
+                """
+                Topic: {topic}
+
+Article content:
 {article_content}
 
 Please polish this article focusing on section name consistency and text fluency.
@@ -122,7 +125,7 @@ Return only the polished article without any additional text.""",
     try:
         # Use solar_pro for polishing
         polish_chain = polish_prompt | solarpro | StrOutputParser()
-        return polish_chain.stream({"article_content": article_content})
+        return polish_chain.stream({"article_content": article_content, "topic": topic})
     except Exception as e:
         st.warning(f"⚠️ Final polishing step skipped: {str(e)}")
         # Return an empty generator for error case
@@ -255,13 +258,13 @@ Please make subtle refinements while keeping the original structure.""",
 
     # Chain for enhancing outline
     enhance_chain = enhance_prompt | solarpro | JsonOutputParser()
-
+    
     max_attempts = 3
     for attempt in range(max_attempts):
         try:
             # Get enhanced outline
             result = enhance_chain.invoke({"topic": topic, "outline": outline})
-
+            
             # Format the result for better readability
             formatted_result = {
                 "topic": topic,
@@ -279,13 +282,11 @@ Please make subtle refinements while keeping the original structure.""",
 - Clear connection to the main topic
 
 Additional guidance: {section['writing_prompt']}"""
-
-                formatted_result["section_prompts"].append(
-                    {
-                        "section_title": section["section_title"],
-                        "prompt": section_prompt,
-                    }
-                )
+                
+                formatted_result["section_prompts"].append({
+                    "section_title": section["section_title"],
+                    "prompt": section_prompt,
+                })
 
             return formatted_result
 
@@ -299,6 +300,35 @@ Additional guidance: {section['writing_prompt']}"""
                 }
             st.info(f"Attempt {attempt + 1} failed, retrying...")
 
+def detect_language(text: str) -> str:
+    """Detect the primary language of the text using SolarPro.
+    
+    Args:
+        text: Input text to analyze
+        
+    Returns:
+        Language code (e.g., 'ko', 'en', 'ja', 'zh', 'es', etc.)
+    """
+    detect_prompt = ChatPromptTemplate.from_messages([
+        ("system", """You are a language detection expert.
+Your task is to determine the primary language of the given text.
+Return ONLY the ISO 639-1 language code (e.g., 'ko' for Korean, 'en' for English, 'ja' for Japanese, 'zh' for Chinese, 'es' for Spanish, etc.)"""),
+        ("user", """Text to analyze:
+{text}
+
+Return ONLY the language code without any other text.""")
+    ])
+
+    try:
+        detect_chain = detect_prompt | solarpro | StrOutputParser()
+        result = detect_chain.invoke({"text": text}).strip().lower()
+        
+        # Return the detected language code
+        return result if result else 'en'  # default to English if empty response
+        
+    except Exception as e:
+        st.warning(f"⚠️ Language detection failed: {str(e)}")
+        return 'en'  # default to English on error
 
 async def get_topic_with_context(
     topic: str, url: Optional[str] = None, uploaded_file=None
@@ -346,6 +376,22 @@ async def get_topic_with_context(
 def write_article(topic, user_outline, url, uploaded_file):
     st.subheader("1️⃣ Gathering Context")
     st.spinner("🔄 Getting context...")
+    if st.session_state.chat_state["language"] is None:
+        language = detect_language(topic)
+        st.session_state.chat_state["language"] = language
+
+    # Display detected language with an icon
+    language_prompt = f"🌏 Write  in {st.session_state.chat_state['language'].upper()}"
+    if st.session_state.chat_state["language"] == "ko":
+        language_prompt = "🇰🇷 Write in Korean"    
+    elif st.session_state.chat_state["language"] == "en":
+        language_prompt = "🌎 Write in English"
+    
+    st.info(language_prompt)
+
+    # Add language prompt to topic
+    topic = topic + " " + language_prompt
+
     # Check and fill context if needed
     if (
         not st.session_state.chat_state["context"]
@@ -442,6 +488,7 @@ def write_article(topic, user_outline, url, uploaded_file):
         if not st.session_state.chat_state["polished_article"]:
             with st.spinner("✨ Polishing article..."):
                 polished = polish_full_article(
+                    topic,
                     st.session_state.chat_state["refined_article"]
                 )
                 polished = st.write_stream(polished)
@@ -501,7 +548,7 @@ def main():
     # Single text area for topic and description
     topic = st.text_area(
         "🎯 Topic & Description:",
-        value="업스테이지 Document AI 관련 기술 블로그 (한국어)",
+        value="업스테이지 Document AI 관련 기술 블로그",
         height=100,
         help="Enter your topic and brief description (optional)",
         placeholder="Example:\nGPT-4 Technical Deep Dive\nor\nAI Image Generation - A comprehensive guide for beginners",
@@ -526,7 +573,7 @@ def main():
         height=300,
     )
 
-    if st.button("🔄 Start New Article"):
+    if st.button("🔄 Write Article"):
         reset_state()
         write_article(topic, user_outline, url, uploaded_file)
     elif st.session_state.chat_state["outline"]:
@@ -535,3 +582,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
