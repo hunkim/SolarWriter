@@ -14,7 +14,7 @@ $(VENV)/bin/activate: requirements.txt
 	$(PYTHON) -m playwright install
 
 app: $(VENV)/bin/activate
-	$(STREAMLIT) run app.py
+	$(STREAMLIT) run app.py --server.port 8503
 
 clean:
 	rm -rf __pycache__
