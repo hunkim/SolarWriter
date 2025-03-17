@@ -4,7 +4,11 @@ PYTHON = $(VENV)/bin/python3
 PIP = $(VENV)/bin/pip3
 STREAMLIT = $(VENV)/bin/streamlit
 
+ENV_FILE := .env
 
+# Load environment variables
+include $(ENV_FILE)
+export
 
 # Browser-enabled venv with playwright
 $(VENV)/bin/activate: requirements.txt
@@ -15,6 +19,9 @@ $(VENV)/bin/activate: requirements.txt
 
 app: $(VENV)/bin/activate
 	$(STREAMLIT) run app.py --server.port 8503
+
+dp_test: $(VENV)/bin/activate
+	$(PYTHON) dp.py
 
 clean:
 	rm -rf __pycache__

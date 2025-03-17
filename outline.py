@@ -1,5 +1,26 @@
-
 OUTLINE_TEMPLATES = {
+    "Event Landing Page": """## Strong Headline
+
+## Introduction (Why AI Initiative?)
+
+
+## Program Overview (What & When & How)
+
+
+## Call to Action (CTA)
+
+
+## Q&A & Application Guidance
+""",
+    "Promotional Email": """## Catchy Subject Line
+
+## Opening Line
+
+## Core Benefits (Why Join?)
+
+## Call to Action (CTA)
+
+## Closing Line""",
     "Technical Blog Post": """# Title
 
 ## Introduction
@@ -25,7 +46,6 @@ OUTLINE_TEMPLATES = {
 ## Conclusion
 - Key takeaways
 - Next steps""",
-
     "Research Paper Review": """# Review: [Paper Title]
 
 ## Research Overview
@@ -46,7 +66,6 @@ OUTLINE_TEMPLATES = {
 ## Conclusion
 - Final assessment
 - Recommendations""",
-
     "Product Review": """# [Product Name] Review
 
 ## Overview
@@ -67,7 +86,6 @@ OUTLINE_TEMPLATES = {
 ## Verdict
 - Final rating
 - Recommendations""",
-
     "Educational Article": """# Understanding [Topic]
 
 ## Core Concepts
@@ -88,5 +106,5 @@ OUTLINE_TEMPLATES = {
 ## Summary
 - Key takeaways
 - Next steps
-- Resources"""
+- Resources""",
 }
