@@ -38,11 +38,26 @@ def write_section(
     key_points: List[str],
     writing_prompt: str,
     context: str = "",
+    example_article: str = "",
 ):
-    # Modified prompt to include context when available
+    # Add style guidance if example article is provided
+    style_guidance = ""
+    if example_article:
+        style_guidance = """
+Follow the writing style, tone, and manner of this example article:
+{example_article}
+
+Match its:
+- Level of formality
+- Sentence structure
+- Technical depth
+- Overall tone
+"""
+
     prompt = f"""For this topic: {topic}. 
     
 {f'Using this context as reference:\n{context}\n' if context else ''}
+{style_guidance if example_article else ''}
 Use search for this topic and write a section about '{section_title}' that {writing_prompt}:
 - Covers these key points: {', '.join(key_points)}
 - Uses clear examples and specific details
@@ -92,18 +107,28 @@ Please actually write a well-structured section (300-500 words). Do not include 
         }
 
 
-def polish_full_article(topic: str, article_content: str) -> str:
+def polish_full_article(topic: str, article_content: str, example_article: str = "") -> str:
     """Polish the article focusing on section name consistency and text fluency"""
+    style_guidance = ""
+    if example_article:
+        style_guidance = f"""
+Reference example for style and tone:
+{example_article}
+
+Match its writing style while maintaining the article's unique content."""
+
     polish_prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
-                """You are an expert editor focusing on text fluency and structure consistency. 
+                f"""You are an expert editor focusing on text fluency and structure consistency. 
 Your task is to polish this article while:
 1. Ensuring section names are consistent in style and format
 2. Improving text fluency and readability
 3. Maintaining professional tone
 4. Preserving all technical content and accuracy
+
+{style_guidance if example_article else ''}
 
 Focus on making the text flow naturally while keeping the technical depth and original language.""",
             ),
@@ -133,8 +158,24 @@ Return only the polished article without any additional text.""",
 
 
 def refine_full_article(
-    topic: str, article_content: str, topic_content: str = ""
+    topic: str, 
+    article_content: str, 
+    topic_content: str = "",
+    example_article: str = ""
 ) -> str:
+    style_guidance = ""
+    if example_article:
+        style_guidance = f"""
+Use this example article as a reference for style and tone:
+{example_article}
+
+When refining, maintain similar:
+- Writing style and voice
+- Paragraph structure
+- Transition patterns
+- Level of detail and explanation
+"""
+
     prompt = f"""As an expert editor, refine this article about '{topic}' to:
 1. Improve flow and transitions between sections
 2. Ensure consistency in tone and style
@@ -143,6 +184,7 @@ def refine_full_article(
 5. Maintain professional language while being engaging
 6. Organize structures and rename sections to make it more engaging and easy to read
 
+{style_guidance if example_article else ''}
 {f'Using this topic content as reference:\n{topic_content}\n\n' if topic_content else ''}
 
 Original article:
@@ -341,6 +383,7 @@ async def get_topic_with_context(
 
     # Get URL content if provided
     if url:
+        st.info(f"🌐 Processing URL: {url}")
         try:
             web_content = await get_web_content(url)
             if web_content:
@@ -356,8 +399,10 @@ async def get_topic_with_context(
 
     # Get PDF/doc content if provided
     if uploaded_file:
+        st.info(f"📄 Processing document: {uploaded_file.name}")
         try:
             pdf_content = doc_parse(uploaded_file)
+            st.info(f"📄 Document processed: {pdf_content}")
             if pdf_content:
                 context.append(pdf_content)
                 sources.append(f"File: {uploaded_file.name}")
@@ -373,7 +418,7 @@ async def get_topic_with_context(
     }
 
 
-def write_article(topic, user_outline, url, uploaded_file):
+def write_article(topic, user_outline, url, uploaded_file, example_article="", example_article_url=""):
     st.subheader("1️⃣ Gathering Context")
     st.spinner("🔄 Getting context...")
     if st.session_state.chat_state["language"] is None:
@@ -398,8 +443,19 @@ def write_article(topic, user_outline, url, uploaded_file):
         or st.session_state.chat_state["context"].get("context") is None
     ):
         with st.spinner("Processing context..."):
+            if example_article_url:
+                web_content = asyncio.run(get_web_content(example_article_url))
+                st.info(f"🌐 Processing example article URL: {example_article_url}")
+                # Extract text content from web_content, handling tuple case
+                url_article = web_content[0] if isinstance(web_content, tuple) else web_content
+                example_article += url_article if url_article else ""
+                
             topic_data = asyncio.run(get_topic_with_context(topic, url, uploaded_file))
             st.session_state.chat_state.update({"topic": topic, "context": topic_data})
+
+    if example_article:
+        with st.expander("📝 Example Article", expanded=False):
+            st.write(example_article)
 
     # Let's write context
     with st.expander("📄 Context Information", expanded=False):
@@ -453,6 +509,7 @@ def write_article(topic, user_outline, url, uploaded_file):
                 key_points=section["key_points"],
                 writing_prompt=section["writing_prompt"],
                 context=st.session_state.chat_state["context"]["context"],
+                example_article=example_article
             )
 
             st.session_state.chat_state["sections"][section["section_title"]] = {
@@ -474,6 +531,7 @@ def write_article(topic, user_outline, url, uploaded_file):
                 st.session_state.chat_state["topic"],
                 combined,
                 st.session_state.chat_state["context"]["context"],
+                example_article
             )
             st.session_state.chat_state["refined_article"] = refined
 
@@ -489,7 +547,8 @@ def write_article(topic, user_outline, url, uploaded_file):
             with st.spinner("✨ Polishing article..."):
                 polished = polish_full_article(
                     topic,
-                    st.session_state.chat_state["refined_article"]
+                    st.session_state.chat_state["refined_article"],
+                    example_article
                 )
                 polished = st.write_stream(polished)
                 st.session_state.chat_state["polished_article"] = polished
@@ -564,6 +623,18 @@ def main():
         uploaded_file = st.file_uploader(
             "📄 Upload Document:", type=["pdf", "docx", "txt"]
         )
+        example_article = st.text_area(
+            "📝 Example Article (Optional):",
+            help="Paste an example article to match its style and tone",
+            height=200,
+            placeholder="Paste a sample article that demonstrates the writing style you want to follow..."
+        )
+
+        example_article_url = st.text_input(
+            "📝 Example Article URL (Optional):",
+            help="Paste an example article to match its style and tone",
+            placeholder="https://example.com/article"
+        )
 
     # Outline selection and customization
     outline_type = st.selectbox("Select content type:", list(OUTLINE_TEMPLATES.keys()))
@@ -575,9 +646,9 @@ def main():
 
     if st.button("🔄 Write Article"):
         reset_state()
-        write_article(topic, user_outline, url, uploaded_file)
+        write_article(topic, user_outline, url, uploaded_file, example_article, example_article_url)
     elif st.session_state.chat_state["outline"]:
-        write_article(topic, user_outline, url, uploaded_file)
+        write_article(topic, user_outline, url, uploaded_file, example_article, example_article_url)
 
 
 if __name__ == "__main__":
