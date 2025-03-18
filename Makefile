@@ -18,7 +18,7 @@ $(VENV)/bin/activate: requirements.txt
 	$(PYTHON) -m playwright install
 
 app: $(VENV)/bin/activate
-	$(STREAMLIT) run app.py
+	$(STREAMLIT) run app.py --server.port 8503
 
 dp_test: $(VENV)/bin/activate
 	$(PYTHON) dp.py
