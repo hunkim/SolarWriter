@@ -444,11 +444,15 @@ def write_article(topic, user_outline, url, uploaded_file, example_article="", e
     ):
         with st.spinner("Processing context..."):
             if example_article_url:
-                web_content = asyncio.run(get_web_content(example_article_url))
-                st.info(f"🌐 Processing example article URL: {example_article_url}")
-                # Extract text content from web_content, handling tuple case
-                url_article = web_content[0] if isinstance(web_content, tuple) else web_content
-                example_article += url_article if url_article else ""
+                try:
+                    web_content = asyncio.run(get_web_content(example_article_url))
+                    st.info(f"🌐 Processing example article URL: {example_article_url}")
+                    # Extract text content from web_content, handling tuple case
+                    url_article = web_content[0] if isinstance(web_content, tuple) else web_content
+                    example_article += url_article if url_article else ""
+                except Exception as e:
+                    st.warning(f"⚠️ Error processing example article URL: {str(e)}")
+                    example_article_url = None
                 
             topic_data = asyncio.run(get_topic_with_context(topic, url, uploaded_file))
             st.session_state.chat_state.update({"topic": topic, "context": topic_data})
