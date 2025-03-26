@@ -18,6 +18,7 @@ def llm(keyword: str, prompt: str="", use_google_search: bool=True) -> Dict[str,
     # Initialize the Google Generative AI client
     client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
     model_id = "gemini-2.0-flash"
+    model_id = "gemini-2.5-pro-exp-03-25"
     
     # Configure tools based on options
     tools = []
