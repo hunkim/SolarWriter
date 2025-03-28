@@ -402,7 +402,6 @@ async def get_topic_with_context(
         st.info(f"📄 Processing document: {uploaded_file.name}")
         try:
             pdf_content = doc_parse(uploaded_file)
-            st.info(f"📄 Document processed: {pdf_content}")
             if pdf_content:
                 context.append(pdf_content)
                 sources.append(f"File: {uploaded_file.name}")
