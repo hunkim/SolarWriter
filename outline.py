@@ -107,4 +107,40 @@ OUTLINE_TEMPLATES = {
 - Key takeaways
 - Next steps
 - Resources""",
+    "Proposal": """# Project Proposal: [Title]
+
+## Executive Summary
+- Project overview
+- Key objectives
+- Expected outcomes
+
+## Background & Context
+- Current situation
+- Problem statement
+- Market analysis
+
+## Proposed Solution
+- Approach
+- Key deliverables
+- Implementation plan
+
+## Resource Requirements
+- Timeline
+- Budget
+- Team structure
+
+## Benefits & ROI
+- Expected benefits
+- Success metrics
+- Return on investment
+
+## Risk Analysis
+- Potential challenges
+- Mitigation strategies
+- Contingency plans
+
+## Next Steps
+- Action items
+- Timeline
+- Required approvals""",
 }
